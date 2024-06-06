@@ -1,0 +1,36 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      docker: latest
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR...
+      - aws --version
+      - $(aws ecr get-login --no-include-email --region $AWS_REGION)
+  build:
+    commands:
+      - echo building code 
+      - npx nx build test
+      - npx nx run my-nest-app:build --no-cache
+      - echo Building Docker image Backend ...
+      - docker build -t nest-backend:$CODEBUILD_RESOLVED_SOURCE_VERSION ./apps/my-nest-app
+      - echo Building Docker image FrontEnd ...
+      - docker build -t frontend-test:$CODEBUILD_RESOLVED_SOURCE_VERSION ./apps/test
+  post_build:
+    commands:
+      - echo Tagging Docker image backend...
+      - docker tag nest-backend:$CODEBUILD_RESOLVED_SOURCE_VERSION $ECR_REPO_URI:latest
+      - echo Tagging Docker image frontend...
+      - docker tag frontend-test:$CODEBUILD_RESOLVED_SOURCE_VERSION $ECR_REPO_URI:latest
+      - echo Pushing Docker backend image to Amazon ECR...
+      - docker push nest-backend:$CODEBUILD_RESOLVED_SOURCE_VERSION
+      - docker push $ECR_REPO_URI:latest
+      - echo Pushing Docker frontend image to Amazon ECR...
+      - docker push frontend-test:$CODEBUILD_RESOLVED_SOURCE_VERSION
+      - docker push $ECR_REPO_URI:latest
+
+artifacts:
+  files:
+    - "**/*"
