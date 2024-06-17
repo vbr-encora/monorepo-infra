@@ -1,35 +1,42 @@
 version: 0.2
 
+env:
+  variables:
+    ECR_REPO_URI: "738989335057.dkr.ecr.us-east-1.amazonaws.com/docker-monorepo"
+
 phases:
   install:
     runtime-versions:
-      docker: latest
+      nodejs: 20
   pre_build:
     commands:
-      - echo Logging in to Amazon ECR...
+      - ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
+      - echo "AWS Account ID: $ACCOUNT_ID"
+      - echo Logging in to Amazon ECR repo $ECR_REPO_URI
       - aws --version
-      - $(aws ecr get-login --no-include-email --region $AWS_REGION)
+      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REPO_URI
   build:
     commands:
-      - echo building code 
-      - npx nx build test
-      - npx nx run my-nest-app:build --no-cache
+      - npm i
+      - echo building code
+      - npx -y nx build test
+      - npx -y nx run my-nest-app:build --no-cache
       - echo Building Docker image Backend ...
-      - docker build -t nest-backend:$CODEBUILD_RESOLVED_SOURCE_VERSION ./apps/my-nest-app
+      - docker build -t nest-backend:backend_latest ./apps/my-nest-app
       - echo Building Docker image FrontEnd ...
-      - docker build -t frontend-test:$CODEBUILD_RESOLVED_SOURCE_VERSION ./apps/test
+      - docker build -t frontend-test:frontend_latest ./apps/test
   post_build:
-    commands:
-      - echo Tagging Docker image backend...
-      - docker tag nest-backend:$CODEBUILD_RESOLVED_SOURCE_VERSION $ECR_REPO_URI:latest
-      - echo Tagging Docker image frontend...
-      - docker tag frontend-test:$CODEBUILD_RESOLVED_SOURCE_VERSION $ECR_REPO_URI:latest
-      - echo Pushing Docker backend image to Amazon ECR...
-      - docker push nest-backend:$CODEBUILD_RESOLVED_SOURCE_VERSION
-      - docker push $ECR_REPO_URI:latest
-      - echo Pushing Docker frontend image to Amazon ECR...
-      - docker push frontend-test:$CODEBUILD_RESOLVED_SOURCE_VERSION
-      - docker push $ECR_REPO_URI:latest
+    commands: |
+      echo Tagging Docker image backend...
+      docker tag nest-backend:backend_latest $ECR_REPO_URI:backend_latest
+      echo Tagging Docker image frontend...
+      docker tag frontend-test:frontend_latest $ECR_REPO_URI:frontend_latest
+      echo Pushing Docker backend image to Amazon ECR...
+      docker push $ECR_REPO_URI:backend_latest
+      echo Pushing Docker frontend image to Amazon ECR...
+      docker push $ECR_REPO_URI:frontend_latest
+      echo Update ECS Service
+      aws ecs update-service --cluster my-ecs-cluster --service my-ecs-service --task-definition my-ecs-task:latest --force-new-deployment
 
 artifacts:
   files:
