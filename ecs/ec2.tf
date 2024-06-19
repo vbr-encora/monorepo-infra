@@ -76,3 +76,23 @@ resource "aws_autoscaling_group" "ecs_asg" {
   }
   depends_on = [aws_internet_gateway.internet_gateway]
 }
+
+
+resource "aws_autoscaling_group" "ecs_asg_backend" {
+  vpc_zone_identifier = [aws_subnet.subnet3.id]
+  desired_capacity    = 1
+  max_size            = 1
+  min_size            = 1
+
+  launch_template {
+    id      = aws_launch_template.ecs_lt.id
+    version = "$Latest"
+  }
+
+  tag {
+    key                 = "AmazonECSManaged"
+    value               = true
+    propagate_at_launch = true
+  }
+  depends_on = [aws_internet_gateway.internet_gateway]
+}

@@ -2,7 +2,7 @@ version: 0.2
 
 env:
   variables:
-    ECR_REPO_URI: "738989335057.dkr.ecr.us-east-1.amazonaws.com/docker-monorepo"
+    ECR_REPO: "docker-monorepo"
 
 phases:
   install:
@@ -11,14 +11,13 @@ phases:
   pre_build:
     commands:
       - ACCOUNT_ID=$(aws sts get-caller-identity --query 'Account' --output text)
-      - echo "AWS Account ID: $ACCOUNT_ID"
+      - ECR_REPO_URI=$ACCOUNT_ID.dkr.ecr.us-east-1.amazonaws.com/$ECR_REPO
       - echo Logging in to Amazon ECR repo $ECR_REPO_URI
-      - aws --version
       - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REPO_URI
   build:
     commands:
       - npm i
-      - echo building code
+      - echo Building code
       - npx -y nx build test
       - npx -y nx run my-nest-app:build --no-cache
       - echo Building Docker image Backend ...
@@ -26,17 +25,24 @@ phases:
       - echo Building Docker image FrontEnd ...
       - docker build -t frontend-test:frontend_latest ./apps/test
   post_build:
-    commands: |
-      echo Tagging Docker image backend...
-      docker tag nest-backend:backend_latest $ECR_REPO_URI:backend_latest
-      echo Tagging Docker image frontend...
-      docker tag frontend-test:frontend_latest $ECR_REPO_URI:frontend_latest
-      echo Pushing Docker backend image to Amazon ECR...
-      docker push $ECR_REPO_URI:backend_latest
-      echo Pushing Docker frontend image to Amazon ECR...
-      docker push $ECR_REPO_URI:frontend_latest
-      echo Update ECS Service
-      aws ecs update-service --cluster my-ecs-cluster --service my-ecs-service --task-definition my-ecs-task:latest --force-new-deployment
+    commands:
+      - echo Tagging Docker image backend...
+      - docker tag nest-backend:backend_latest $ECR_REPO_URI:backend_latest
+      - echo Tagging Docker image frontend...
+      - docker tag frontend-test:frontend_latest $ECR_REPO_URI:frontend_latest
+      - echo Pushing Docker backend image to Amazon ECR...
+      - docker push $ECR_REPO_URI:backend_latest
+      - echo Pushing Docker frontend image to Amazon ECR...
+      - docker push $ECR_REPO_URI:frontend_latest
+      - TASK_DEF_ARN_APP=$(aws ecs describe-services --cluster my-ecs-cluster --services my-ecs-service --query 'services[0].taskDefinition' --output text)
+      - TASK_DEF_REV_APP=$(aws ecs describe-task-definition --task-definition $TASK_DEF_ARN_APP --query 'taskDefinition.revision' --output text)
+      - echo Update ECS Service FrontEnd
+      - aws ecs update-service --cluster my-ecs-cluster --service my-ecs-service --task-definition my-ecs-task:$TASK_DEF_REV_APP --force-new-deployment
+
+      - TASK_DEF_ARN_APP2=$(aws ecs describe-services --cluster my-ecs-cluster --services my-ecs-service-backend --query 'services[0].taskDefinition' --output text)
+      - TASK_DEF_REV_APP2=$(aws ecs describe-task-definition --task-definition $TASK_DEF_ARN_APP2 --query 'taskDefinition.revision' --output text)
+      - echo Update ECS Service Backend
+      - aws ecs update-service --cluster my-ecs-cluster --service my-ecs-service-backend --task-definition my-ecs-task-backend:$TASK_DEF_REV_APP2 --force-new-deployment
 
 artifacts:
   files:
